@@ -41,7 +41,9 @@ const ALLOWED_QUERY_KEYS: &[&str] = &[
     "author",
     "subject",
     "keywords",
-    // Header/footer (text and its styling only; HTML files cannot be specified)
+    // Header/footer (text, styling, and inline HTML; HTML files cannot be specified)
+    "header-html-content",
+    "footer-html-content",
     "default-header",
     "header-left",
     "header-center",
