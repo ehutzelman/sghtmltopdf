@@ -67,7 +67,7 @@ CLIのフラグ名をそのままキーにした平坦なHashを使う(`_`が`-`
 | `cover: "shared/cover"` | `cover: <ファイルパス>` | テンプレート名ではなくHTMLファイルのパス(後述) |
 | `toc: {}` | `toc: true` | 見た目は`toc_header_text:`などで調整 |
 | `header: {left:, center:, right:}` | `header_left:` / `header_center:` / `header_right:` | |
-| `header: {html: {template: "..."}}` | `header_html: <ファイルパス>` | 同上 |
+| `header: {html: {template: "..."}}` | `header_html_content: <描画済みHTML>` | `render_to_string`で描画して渡す。footerも同様(後述) |
 | `header: {line: true, spacing: 5, font_name:, font_size:}` | `header_line: true`, `header_spacing: 5`, `header_font_name:`, `header_font_size:` | footerも同様 |
 | `outline: {}` | — | PDFアウトラインは非対応 |
 | `disable_javascript` / `javascript_delay` / `window_status` | — | JSは実行しない(設計上の非目標) |
@@ -80,20 +80,19 @@ CLIのフラグ名をそのままキーにした平坦なHashを使う(`_`が`-`
 
 ### 表紙・ヘッダー・フッターのHTML
 
-wicked_pdfはRailsのテンプレート名を受け取って内部で描画するが、sghtmltopdfの`--cover`/`--header-html`/`--footer-html`はファイルのパスを取ります(CLIと同じ経路に合流させるため)。
-Railsのテンプレートを使いたい場合は、自分で描画して一時ファイルへ書き出してください。
+wicked_pdfはRailsのテンプレート名を受け取って内部で描画するが、sghtmltopdfでは`render_to_string`で描画したHTMLを`header_html_content` / `footer_html_content`へ直接渡せます。一時ファイルは不要です。
 
 ```ruby
 def show
-  header = Tempfile.new(["header", ".html"])
-  header.write(render_to_string(template: "invoices/header", layout: false))
-  header.flush
+  header = render_to_string(template: "invoices/header", layout: false)
 
-  render pdf: "invoice", template: "invoices/show", header_html: header.path
-ensure
-  header&.close!
+  render pdf: "invoice", template: "invoices/show", header_html_content: header
 end
 ```
+
+既存のHTMLファイルを使う場合は、`header_html` / `footer_html`へファイルパスを渡せます。同じ側のパスとHTML文字列を同時に指定すると`Sghtmltopdf::UsageError`になります。
+
+表紙の`cover`は引き続きファイルパスを取ります。Railsのテンプレートを表紙に使う場合は、`render_to_string`で描画したHTMLを一時ファイルへ書き出し、そのパスを渡してください。
 
 ## ビューヘルパ
 
