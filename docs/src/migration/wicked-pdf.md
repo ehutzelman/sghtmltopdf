@@ -90,7 +90,23 @@ def show
 end
 ```
 
-既存のHTMLファイルを使う場合は、`header_html` / `footer_html`へファイルパスを渡せます。同じ側のパスとHTML文字列を同時に指定すると`Sghtmltopdf::UsageError`になります。
+既存のHTMLファイルを使う場合は、`header_html` / `footer_html`へファイルパスを渡せます。従来どおり、Railsのテンプレートを一時ファイルへ書き出す方法も利用できます。
+
+```ruby
+require "tempfile"
+
+def show
+  header = Tempfile.new(["header", ".html"])
+  header.write(render_to_string(template: "invoices/header", layout: false))
+  header.flush
+
+  render pdf: "invoice", template: "invoices/show", header_html: header.path
+ensure
+  header&.close!
+end
+```
+
+`footer_html`でも同じ方法を使えます。同じ側のパスとHTML文字列を同時に指定すると`Sghtmltopdf::UsageError`になります。
 
 表紙の`cover`は引き続きファイルパスを取ります。Railsのテンプレートを表紙に使う場合は、`render_to_string`で描画したHTMLを一時ファイルへ書き出し、そのパスを渡してください。
 
