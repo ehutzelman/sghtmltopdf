@@ -1,4 +1,4 @@
-//! レイアウト結果のPDFオブジェクトへのエンコード。
+//! Encoding of layout results into PDF objects.
 
 mod color_font;
 mod document;

@@ -2,18 +2,19 @@
 
 require "open3"
 
-# アセットパイプライン(Propshaft)を入れたアプリでの経路。
+# The path taken in an app with an asset pipeline (Propshaft) installed.
 #
-# dummyアプリ本体はパイプラインgem無しで動かしている(素のRailsアプリの
-# 既定を見るため)ので、パイプラインを読み込んだアプリは別プロセスで起動する。
-# `spec/railtie_spec.rb`と同じやり方。
+# The dummy app itself runs without a pipeline gem (to check the defaults of a
+# plain Rails app), so an app that loads the pipeline is booted in a separate
+# process. Same approach as `spec/railtie_spec.rb`.
 #
-# ここで見たいのは開発環境の状況、つまり「precompileしていないので
-# `public/assets`には何も無く、実ファイルは`app/assets`にある」状態。
-RSpec.describe "アセットパイプラインを入れたアプリ" do
+# What we want to see here is the development situation: nothing has been
+# precompiled, so `public/assets` is empty and the real files live in
+# `app/assets`.
+RSpec.describe "an app with an asset pipeline" do
   PIPELINE_ROOT = File.expand_path("..", __dir__)
 
-  # 子プロセスでPropshaft入りのdummyアプリを起動し、`script`を評価する。
+  # Boots the dummy app with Propshaft in a child process and evaluates `script`.
   def in_pipeline_app(script)
     boot = <<~RUBY
       ENV["RAILS_ENV"] = "test"
@@ -44,29 +45,29 @@ RSpec.describe "アセットパイプラインを入れたアプリ" do
       RbConfig.ruby, "-I#{File.join(PIPELINE_ROOT, "lib")}", "-rbundler/setup",
       "-e", boot + script, chdir: PIPELINE_ROOT
     )
-    raise "子プロセスが失敗しました: #{err}" unless status.success?
+    raise "the child process failed: #{err}" unless status.success?
 
     out.split("\n")
   end
 
-  it "allow_pathの既定にパイプラインのロードパスが入る" do
+  it "includes the pipeline load paths in the default allow_path" do
     lines = in_pipeline_app(<<~RUBY)
       allow = Sghtmltopdf.config[:allow_path]
       puts allow.include?(File.join(root, "public"))
       puts allow.include?(File.join(root, "app/assets/images"))
-      # gemが提供するアセットのパスも入る(Rails.rootの外)。
+      # Asset paths provided by gems are included too (outside Rails.root).
       puts allow.any? { |dir| !dir.start_with?(root) }
-      # config/はもう読める範囲に入らない。
+      # config/ is no longer within the readable range.
       puts allow.none? { |dir| dir == root }
     RUBY
 
     expect(lines).to eq(%w[true true true true])
   end
 
-  # Propshaftは自分のロードパスに無いアセットを渡されるとMissingAssetErrorを
-  # 投げる。`public/`にだけあるファイルがまさにそれなので、素通しすると
-  # `from_public_dir`が例外で落ちる。
-  it "public/にだけあるファイルもパイプライン越しに解決できる" do
+  # Propshaft raises MissingAssetError when given an asset that is not on its
+  # load path. A file that exists only under `public/` is exactly that, so
+  # passing it straight through makes `from_public_dir` fail with an exception.
+  it "resolves files that exist only under public/ through the pipeline" do
     lines = in_pipeline_app(<<~RUBY)
       puts view.sghtmltopdf_asset_path("logo.png") == File.join(root, "public/logo.png")
       puts view.sghtmltopdf_asset_path("pipeline-logo.png") ==
@@ -77,9 +78,10 @@ RSpec.describe "アセットパイプラインを入れたアプリ" do
     expect(lines).to eq(%w[true true true])
   end
 
-  # 素の`image_tag`はダイジェスト付きの仮想パスを出すだけで、devでは
-  # 対応する実ファイルがどこにも無い。ヘルパはロードパスを引いて実体を指す。
-  it "素のimage_tagが出す仮想パスには実ファイルが無い" do
+  # Plain `image_tag` only emits a digested virtual path, and in dev there is
+  # no matching real file anywhere. The helper looks up the load path and
+  # points at the actual file.
+  it "has no real file behind the virtual path emitted by plain image_tag" do
     lines = in_pipeline_app(<<~RUBY)
       src = view.image_tag("pipeline-logo.png")[/src="([^"]+)"/, 1]
       puts src.start_with?("/assets/pipeline-logo-")
@@ -90,38 +92,40 @@ RSpec.describe "アセットパイプラインを入れたアプリ" do
     expect(lines).to eq(%w[true false false])
   end
 
-  it "public/の外の画像は絶対パスで指し、エンジンが読める" do
+  it "points at images outside public/ by absolute path so the engine can read them" do
     lines = in_pipeline_app(<<~RUBY)
       html = view.sghtmltopdf_image_tag("pipeline-logo.png")
       src = html[/src="([^"]+)"/, 1]
       puts src == File.join(root, "app/assets/images/pipeline-logo.png")
       puts html.include?("data:")
-      # 20x16のPNGがXObjectとして埋まる。
+      # The 20x16 PNG is embedded as an XObject.
       puts Sghtmltopdf.render(html).include?("/Width 20")
     RUBY
 
     expect(lines).to eq(%w[true false true])
   end
 
-  # 開発環境ではヘルパがコンパイル前のCSSを引くので、`url()`はパイプラインに
-  # 書き換えられておらず論理パスのまま残る。エンジンは文書のbase_url基準でしか
-  # 解決できないので、ここでロードパスを引いて実体へ指し直す。
-  it "パイプラインのCSSのurl()はロードパス越しに実体を指す" do
+  # In development the helper reads the uncompiled CSS, so `url()` has not
+  # been rewritten by the pipeline and remains a logical path. The engine can
+  # only resolve against the document's base_url, so we look up the load path
+  # here and repoint it at the actual file.
+  it "points url() in pipeline CSS at the actual file through the load path" do
     lines = in_pipeline_app(<<~'RUBY')
       html = view.sghtmltopdf_stylesheet_link_tag("pipeline")
       src = html[/url\("([^"]+)"\)/, 1]
       puts src == File.join(root, "app/assets/images/pipeline-logo.png")
       puts html.include?("data:")
-      # 20x16のPNGがXObjectとして埋まる。
+      # The 20x16 PNG is embedded as an XObject.
       puts Sghtmltopdf.render(html + "<p>x</p>").include?("/Width 20")
     RUBY
 
     expect(lines).to eq(%w[true false true])
   end
 
-  # devでは`public/assets`に何も無いので、`/assets/…`はロードパスの論理パスへ
-  # 読み替える。マウント位置(`config.assets.prefix`)は論理パスの一部ではない。
-  it "/assets/の参照はマウント位置を外してロードパスから引く" do
+  # In dev `public/assets` is empty, so `/assets/…` is read as a logical path
+  # on the load path. The mount point (`config.assets.prefix`) is not part of
+  # the logical path.
+  it "strips the mount point from /assets/ references and looks them up on the load path" do
     lines = in_pipeline_app(<<~'RUBY')
       require "fileutils"
       css = File.join(root, "public/rooted.css")
@@ -137,7 +141,7 @@ RSpec.describe "アセットパイプラインを入れたアプリ" do
     expect(lines).to eq(%w[true])
   end
 
-  it "allow_pathを絞るとCSSのurl()も埋め込みに倒す" do
+  it "falls back to embedding for url() in CSS when allow_path is narrowed" do
     lines = in_pipeline_app(<<~RUBY)
       Sghtmltopdf.configure { |c| c.allow_path = [File.join(root, "public")] }
       html = view.sghtmltopdf_stylesheet_link_tag("pipeline")
@@ -147,12 +151,12 @@ RSpec.describe "アセットパイプラインを入れたアプリ" do
     expect(lines).to eq(%w[true])
   end
 
-  it "allow_pathを絞ると読めなくなるので埋め込みに倒す" do
+  it "falls back to embedding when a narrowed allow_path makes the file unreadable" do
     lines = in_pipeline_app(<<~RUBY)
       Sghtmltopdf.configure { |c| c.allow_path = [File.join(root, "public")] }
       html = view.sghtmltopdf_image_tag("pipeline-logo.png")
       puts html.include?("data:image/png;base64,")
-      # public/配下は相対パスのまま。
+      # Files under public/ stay as relative paths.
       puts view.sghtmltopdf_image_tag("logo.png") == %(<img src="logo.png">)
     RUBY
 

@@ -18,8 +18,8 @@ PDFは文書の中にフォントを埋め込みます。
 それでも描画できない文字が残る場合は、豆腐(□)になる前に警告を出します。
 
 ```
-警告: 文字 "ไ" を描画できるフォントがありません(豆腐になります)。
-  --font/--gothic-font か @font-face でフォントを明示してください
+warning: no font can draw the character "ไ" (it will render as tofu).
+  Specify a font with --font/--gothic-font or @font-face
 ```
 
 > サーバやCIでは`--font`を明示してください。

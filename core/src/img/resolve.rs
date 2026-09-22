@@ -1,4 +1,4 @@
-//! `<img src>`のURL/パス分類。
+//! Classification of `<img src>` values into URLs and paths.
 
 use std::path::{Component, Path, PathBuf};
 
@@ -7,34 +7,34 @@ use base64::engine::general_purpose::GeneralPurposeConfig;
 use base64::engine::{DecodePaddingMode, GeneralPurpose};
 use base64::Engine;
 
-/// `<img src>`の値を分類した結果。
+/// The result of classifying an `<img src>` value.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ImgSrc {
-    /// `base_dir`相対のローカルファイルパスとして扱う値。
+    /// A value treated as a local file path relative to `base_dir`.
     ///
-    /// `http`/`https`/`data:`のいずれにも一致しなかった値がここに来る。
-    /// `file:`は明示的に別扱い(拒否)のため、ここには来ない(「ローカル相対
-    /// パスとURLスキームを取り違えさせない」方針通り)。
+    /// Anything that matched none of `http`/`https`/`data:` lands here.
+    /// `file:` is handled separately (and rejected), so it never lands here, following
+    /// the rule that a local relative path must never be confused with a URL scheme.
     LocalPath(String),
-    /// `http`/`https`の絶対URL。実際のフェッチは
-    /// フェッチャがセキュリティポリシーに従って行う。
+    /// An absolute `http`/`https` URL. The actual fetch is performed by the fetcher,
+    /// according to its security policy.
     RemoteUrl(String),
-    /// `data:`URI。`;base64`が付いていればbase64として、付いていなければ
-    /// パーセントエンコードとしてデコードする(RFC 2397)。
+    /// A `data:` URI. Decoded as base64 if `;base64` is present, and as percent-encoding
+    /// otherwise (RFC 2397).
     ///
-    /// 非base64のペイロードはラスタ画像ではまず使われないが、SVGでは
-    /// `data:image/svg+xml,%3Csvg...%3E`が最も一般的な書き方なので、
-    /// どちらも受ける。デコードした結果が画像として読めるかは
-    /// `pdf::img::decode_image`が中身のバイト列を見て判断する。
+    /// A non-base64 payload is rare for raster images, but for SVG
+    /// `data:image/svg+xml,%3Csvg...%3E` is the most common form, so both are accepted.
+    /// Whether the decoded result is readable as an image is decided by
+    /// `pdf::img::decode_image` from the bytes themselves.
     DataUri { mime_type: String, bytes: Vec<u8> },
 }
 
-/// `raw`(生の参照値)を`<base href>`に対して解決する。
+/// Resolve `raw` (the raw reference value) against `<base href>`.
 ///
-/// `base`が`None`、または`raw`が絶対参照(`http(s)`/`data:`)の場合は`raw`を
-/// そのまま返す。`base`が`http(s)`の絶対URLならURLとして結合し、そうでなければ
-/// ローカルパスのディレクトリ前置として扱う(root-relativeな`raw`はどちらの
-/// 場合も基準のルートを使うため前置しない)。
+/// If `base` is `None`, or `raw` is an absolute reference (`http(s)`/`data:`), `raw` is
+/// returned unchanged. If `base` is an absolute `http(s)` URL the two are joined as URLs;
+/// otherwise `base` is treated as a directory prefix for a local path (a root-relative
+/// `raw` is not prefixed in either case, since it resolves against the base's root).
 pub fn resolve_against_base_href(base: Option<&str>, raw: &str) -> String {
     let raw_trimmed = raw.trim();
     let Some(base) = base.map(str::trim).filter(|b| !b.is_empty()) else {
@@ -51,8 +51,8 @@ pub fn resolve_against_base_href(base: Option<&str>, raw: &str) -> String {
     let base_is_url = starts_with_ignore_ascii_case(base, "http://")
         || starts_with_ignore_ascii_case(base, "https://");
     if !base_is_url {
-        // ローカルパスの基準ディレクトリとして前置する。root-relativeな参照は
-        // `resolve_local_asset_path`が`base_dir`のルートとして解決するので触らない。
+        // Prefix it as the base directory for a local path. A root-relative reference is
+        // left alone, because `resolve_local_asset_path` resolves it against `base_dir`'s root.
         if raw_trimmed.starts_with('/') {
             return raw_trimmed.to_string();
         }
@@ -63,12 +63,12 @@ pub fn resolve_against_base_href(base: Option<&str>, raw: &str) -> String {
         return format!("{base_dir}/{raw_trimmed}");
     }
 
-    // プロトコル相対(`//example.com/x`)。
+    // Protocol-relative (`//example.com/x`).
     if let Some(rest) = raw_trimmed.strip_prefix("//") {
         let scheme = base.split(':').next().unwrap_or("https");
         return format!("{scheme}://{rest}");
     }
-    // ルート相対(`/x`)は基準URLのオリジンに対して解決する。
+    // Root-relative (`/x`) resolves against the base URL's origin.
     let scheme_end = base.find("://").map(|i| i + 3).unwrap_or(0);
     if raw_trimmed.starts_with('/') {
         let origin_end = base[scheme_end..]
@@ -77,7 +77,7 @@ pub fn resolve_against_base_href(base: Option<&str>, raw: &str) -> String {
             .unwrap_or(base.len());
         return format!("{}{raw_trimmed}", &base[..origin_end]);
     }
-    // それ以外は基準URLの「最後の`/`まで」に連結する。
+    // Anything else is appended to the base URL up to its last `/`.
     let dir_end = base[scheme_end..]
         .rfind('/')
         .map(|i| scheme_end + i + 1)
@@ -90,8 +90,8 @@ pub fn resolve_against_base_href(base: Option<&str>, raw: &str) -> String {
     resolved
 }
 
-/// `src`属性の値を分類する。デコード不能な`data:`URI・`file:`スキームなど
-/// 「そもそも取得を試みるべきでない」値は`None`を返す(呼び出し側は画像なしの置換要素として扱う)。
+/// Classify the value of a `src` attribute. Values that should never be fetched at all -
+/// an undecodable `data:` URI, the `file:` scheme - return `None` (the caller treats that as a replaced element with no image).
 pub fn classify_img_src(src: &str) -> Option<ImgSrc> {
     let trimmed = src.trim();
 
@@ -119,7 +119,7 @@ fn strip_prefix_ignore_ascii_case<'a>(value: &'a str, prefix: &str) -> Option<&'
     starts_with_ignore_ascii_case(value, prefix).then(|| &value[prefix.len()..])
 }
 
-/// `data:`の直後(`data:`自体は含まない)を`[<mediatype>][;base64],<data>`として解釈する(RFC 2397)。
+/// Interpret what follows `data:` (not including `data:` itself) as `[<mediatype>][;base64],<data>` (RFC 2397).
 fn parse_data_uri(rest: &str) -> Option<ImgSrc> {
     let (meta, data) = rest.split_once(',')?;
 
@@ -131,11 +131,11 @@ fn parse_data_uri(rest: &str) -> Option<ImgSrc> {
         } else if segment.eq_ignore_ascii_case("base64") {
             is_base64 = true;
         }
-        // charset等それ以外のパラメータは画像埋め込みには関係ないため無視する。
+        // Other parameters such as charset are irrelevant to embedding an image, so ignore them.
     }
     let bytes = if is_base64 {
-        // base64ペイロード中に改行等の空白が挟まれるケースを許容するため、
-        // デコード前に取り除く。パディングの有無(`=`)もどちらも受け付ける。
+        // Strip whitespace before decoding, so a base64 payload broken across lines is
+        // accepted. Padding (`=`) is optional either way.
         let cleaned: Vec<u8> = data.bytes().filter(|b| !b.is_ascii_whitespace()).collect();
         lenient_base64().decode(cleaned).ok()?
     } else {
@@ -145,13 +145,12 @@ fn parse_data_uri(rest: &str) -> Option<ImgSrc> {
     Some(ImgSrc::DataUri { mime_type, bytes })
 }
 
-/// パーセントエンコード(`%XX`)を解く。`%XX`の形でないものはそのまま通す。
+/// Undo percent-encoding (`%XX`). Anything not in `%XX` form is passed through.
 ///
-/// タブ・改行だけは取り除く(URL標準がURLの解析前にこの2つを落とすため。
-/// HTMLの属性やCSSの`url()`の中で折り返して書かれた`data:`URIを、余計な
-/// 制御文字を混ぜずに受けられるようにする)。**空白は残す**。
-/// エンコードされていないSVG(`data:image/svg+xml,<svg ...>`)では
-/// タグの区切りとして意味を持つため。
+/// Tabs and newlines alone are stripped (the URL standard drops those two before parsing
+/// a URL). That lets a `data:` URI wrapped across lines inside an HTML attribute or a CSS
+/// `url()` be accepted without picking up stray control characters. **Spaces are kept**,
+/// because in an unencoded SVG (`data:image/svg+xml,<svg ...>`) they separate tags.
 fn percent_decode(data: &str) -> Vec<u8> {
     let bytes = data.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
@@ -159,9 +158,9 @@ fn percent_decode(data: &str) -> Vec<u8> {
     while i < bytes.len() {
         match bytes[i] {
             b'\t' | b'\r' | b'\n' => i += 1,
-            // バイト単位で16進2桁を読む。`data`はUTF-8なので`%`の後ろが
-            // マルチバイト文字の途中でも、バイトで見ている限り安全
-            // (16進として読めなければリテラルの`%`として通す)。
+            // Read two hex digits byte by byte. `data` is UTF-8, so even if what follows
+            // `%` is mid-way through a multi-byte character this stays safe as long as we
+            // work in bytes (anything unreadable as hex passes through as a literal `%`).
             b'%' if i + 3 <= bytes.len() => {
                 match (hex_value(bytes[i + 1]), hex_value(bytes[i + 2])) {
                     (Some(hi), Some(lo)) => {
@@ -192,7 +191,7 @@ fn hex_value(byte: u8) -> Option<u8> {
     }
 }
 
-/// パディングあり/なしのどちらも受け付ける標準base64デコーダ。
+/// A standard base64 decoder that accepts both padded and unpadded input.
 fn lenient_base64() -> GeneralPurpose {
     GeneralPurpose::new(
         &BASE64_STANDARD_ALPHABET,
@@ -336,7 +335,7 @@ mod tests {
 
     #[test]
     fn decodes_a_base64_data_uri() {
-        // "hi"のbase64表現。
+        // The base64 of "hi".
         let src = "data:image/png;base64,aGk=";
         assert_eq!(
             classify_img_src(src),
@@ -371,8 +370,8 @@ mod tests {
         );
     }
 
-    /// SVGは`data:image/svg+xml,%3Csvg...%3E`(base64でない)が一般的な
-    /// 書き方なので、パーセントエンコードのペイロードも受ける。
+    /// The common way to write an SVG is `data:image/svg+xml,%3Csvg...%3E` (not base64),
+    /// so a percent-encoded payload is accepted too.
     #[test]
     fn decodes_a_percent_encoded_data_uri() {
         assert_eq!(
@@ -397,8 +396,8 @@ mod tests {
         );
     }
 
-    /// エンコードされていないペイロードもそのまま通す(`;utf8,`のような
-    /// 慣習的なパラメータ付きも含む)。空白は意味を持つので落とさない。
+    /// An unencoded payload passes through as-is (including conventional parameters such
+    /// as `;utf8,`). Spaces are meaningful, so they are not dropped.
     #[test]
     fn passes_through_an_unencoded_data_uri_payload() {
         assert_eq!(
@@ -410,7 +409,7 @@ mod tests {
         );
     }
 
-    /// 折り返して書かれたdata:URIのタブ・改行は落とす(URL標準と同じ)。
+    /// Tabs and newlines in a data: URI written across lines are dropped (as the URL standard does).
     #[test]
     fn strips_tabs_and_newlines_but_not_spaces_from_a_percent_encoded_payload() {
         assert_eq!(
@@ -422,8 +421,8 @@ mod tests {
         );
     }
 
-    /// `%`が16進2桁の形になっていなければリテラルの`%`として通す
-    /// (壊れたエンコードでSVG全体を捨てない)。
+    /// A `%` not followed by two hex digits passes through as a literal `%`
+    /// (a broken escape must not throw away the whole SVG).
     #[test]
     fn a_stray_percent_is_kept_verbatim() {
         assert_eq!(
@@ -435,11 +434,11 @@ mod tests {
         );
     }
 
-    /// パーセントエンコードは非ASCIIバイトも復元できる(UTF-8の途中で
-    /// 切らずにバイト単位で読んでいることの確認)。
+    /// Percent-encoding restores non-ASCII bytes too (confirming we read byte by byte
+    /// rather than cutting a UTF-8 sequence in half).
     #[test]
     fn decodes_percent_escapes_of_non_ascii_bytes() {
-        // "あ" = E3 81 82
+        // "\u{3042}" = E3 81 82
         assert_eq!(
             classify_img_src("data:text/plain,%E3%81%82"),
             Some(ImgSrc::DataUri {
@@ -447,7 +446,7 @@ mod tests {
                 bytes: "あ".as_bytes().to_vec(),
             })
         );
-        // エンコードされていない非ASCIIもそのまま通る。
+        // Unencoded non-ASCII passes through as well.
         assert_eq!(
             classify_img_src("data:text/plain,あ%20い"),
             Some(ImgSrc::DataUri {
@@ -470,7 +469,7 @@ mod tests {
         assert_eq!(classify_img_src("data:image/png;base64"), None);
     }
 
-    /// base_dir配下に収まる参照だけを取り出すヘルパ(封じ込めの確認込み)。
+    /// Helper returning only references that stay inside base_dir (containment check included).
     fn within(base: &str, raw: &str) -> Option<PathBuf> {
         let resolved = resolve_local_asset_path(Path::new(base), raw);
         (!resolved.escapes_base_dir).then_some(resolved.path)
@@ -486,14 +485,14 @@ mod tests {
 
     #[test]
     fn a_parent_reference_that_escapes_base_dir_is_flagged() {
-        // 信頼できないHTMLからの`<img src="../../../../etc/passwd">`。
+        // `<img src="../../../../etc/passwd">` from untrusted HTML.
         let resolved =
             resolve_local_asset_path(Path::new("/var/www/app"), "../../../../etc/passwd");
         assert!(
             resolved.escapes_base_dir,
-            "base_dirの外へ出る参照は印が付くべき"
+            "a reference escaping base_dir should be flagged"
         );
-        // `--allow`が指定されたときの判定に使えるよう、パス自体は素直に解決する。
+        // The path itself resolves plainly, so it can be checked against `--allow`.
         assert_eq!(
             resolved.path,
             Path::new("/var/www/app/../../../../etc/passwd")
@@ -502,7 +501,7 @@ mod tests {
 
     #[test]
     fn a_parent_reference_that_stays_inside_base_dir_is_allowed() {
-        // `assets/../images/x.png`はbase_dirの中で完結するので許す。
+        // `assets/../images/x.png` stays inside base_dir, so it is allowed.
         assert_eq!(
             within("/var/www/app", "assets/../images/x.png"),
             Some(PathBuf::from("/var/www/app/images/x.png"))
@@ -511,7 +510,7 @@ mod tests {
 
     #[test]
     fn stacked_parent_references_are_counted_correctly() {
-        // `..`が2段続いても1段ぶんに畳まれない(数え落とすと素通りする)。
+        // Two stacked `..` must not collapse into one (miscounting would let it through).
         let resolved = resolve_local_asset_path(Path::new("/var/www/app"), "../../etc/passwd");
         assert!(resolved.escapes_base_dir);
         assert_eq!(resolved.path, Path::new("/var/www/app/../../etc/passwd"));
@@ -519,7 +518,7 @@ mod tests {
 
     #[test]
     fn a_parent_reference_after_descending_only_escapes_when_it_goes_too_far() {
-        // a/../.. は1段ぶん外に出る。
+        // a/../.. escapes by one level.
         let resolved = resolve_local_asset_path(Path::new("/var/www/app"), "a/../../x");
         assert!(resolved.escapes_base_dir);
         assert_eq!(resolved.path, Path::new("/var/www/app/../x"));
@@ -527,10 +526,10 @@ mod tests {
 
     #[test]
     fn resolve_local_asset_path_treats_a_leading_slash_as_relative_to_base_dir() {
-        // 素朴な`base_dir.join(raw)`だと、Path::joinは絶対パスを渡されると
-        // base_dirを丸ごと捨ててしまう(Unix)。root-relativeなhref
-        // (`<link href="/stylesheets/main.css" />`の例)が
-        // base_dirの外(OSのファイルシステムルート)へ逃げないことを確認する。
+        // With a naive `base_dir.join(raw)`, Path::join discards base_dir entirely when
+        // handed an absolute path (on Unix). This checks that a root-relative href
+        // (the `<link href="/stylesheets/main.css" />` case) does not escape base_dir
+        // to the OS filesystem root.
         assert_eq!(
             within("/var/www/app", "/stylesheets/main.css"),
             Some(PathBuf::from("/var/www/app/stylesheets/main.css")),
@@ -576,7 +575,7 @@ mod tests {
 
     #[test]
     fn resolve_local_asset_path_normalizes_dot_relative_paths() {
-        // `.`は畳まれる
+        // `.` is folded away
         assert_eq!(
             within("/var/www/app", "./assets/x.css"),
             Some(PathBuf::from("/var/www/app/assets/x.css"))
@@ -618,7 +617,7 @@ mod tests {
             resolve_against_base_href(Some("https://example.com/docs/"), "a.png"),
             "https://example.com/docs/a.png"
         );
-        // 末尾に`/`が無い基準はディレクトリとみなせる部分までを使う。
+        // A base without a trailing `/` uses the part that can be read as a directory.
         assert_eq!(
             resolve_against_base_href(Some("https://example.com/docs"), "a.png"),
             "https://example.com/a.png"
@@ -647,8 +646,8 @@ mod tests {
             resolve_against_base_href(Some("assets"), "a.png"),
             "assets/a.png"
         );
-        // root-relativeな参照は基準ディレクトリを前置しない
-        // (`resolve_local_asset_path`が`base_dir`のルートとして解決するため)。
+        // A root-relative reference is not prefixed with the base directory
+        // (`resolve_local_asset_path` resolves it against `base_dir`'s root).
         assert_eq!(
             resolve_against_base_href(Some("assets/"), "/a.png"),
             "/a.png"

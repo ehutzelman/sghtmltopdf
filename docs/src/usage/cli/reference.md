@@ -208,8 +208,8 @@ sghtmltopdf report.html --cover cover.html --toc --footer-center "[page]"
 
 ```console
 $ sghtmltopdf pages/index.html -o out.pdf
-エラー: ../images/logo.png: 基準ディレクトリ(pages)の外を参照しています。
-  外部のファイルを読む場合は --allow-path でディレクトリを明示してください
+error: ../images/logo.png: the reference points outside the base directory (pages).
+  To read files outside it, name the directory with --allow-path
 
 $ sghtmltopdf pages/index.html --allow-path . -o out.pdf
 ```

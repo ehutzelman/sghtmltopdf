@@ -28,12 +28,12 @@ module Sghtmltopdf
       defaults
     end
 
-    # 読むのはinitializerの中ではなく`after_initialize`。パイプラインが
-    # `config.assets.paths`を埋めるのは自分のinitializer(Propshaftなら
-    # `propshaft.append_assets_path`)で、そちらの方が後に走るため。
+    # Read in `after_initialize`, not inside the initializer. The pipeline fills
+    # `config.assets.paths` in its own initializer (for Propshaft,
+    # `propshaft.append_assets_path`), and that one runs later.
     #
-    # `config/initializers`より後になるが、`apply_defaults`は明示的に設定した
-    # 値より常に弱いので、ユーザーの設定を踏むことはない。
+    # This runs after `config/initializers`, but `apply_defaults` is always
+    # weaker than explicitly set values, so it never overrides user settings.
     initializer "sghtmltopdf.defaults" do |app|
       app.config.after_initialize do
         Sghtmltopdf.config.apply_defaults(Sghtmltopdf::Railtie.default_options(app))

@@ -6613,13 +6613,13 @@ msgstr ""
 #: src/supports/fonts.md:20
 msgid ""
 "```\n"
-"警告: 文字 \"ไ\" を描画できるフォントがありません(豆腐になります)。\n"
-"  --font/--gothic-font か @font-face でフォントを明示してください\n"
+"warning: no font can draw the character \"ไ\" (it will render as tofu).\n"
+"  Specify a font with --font/--gothic-font or @font-face\n"
 "```"
 msgstr ""
 "```\n"
-"警告: 文字 \"ไ\" を描画できるフォントがありません(豆腐になります)。\n"
-"  --font/--gothic-font か @font-face でフォントを明示してください\n"
+"warning: no font can draw the character \"ไ\" (it will render as tofu).\n"
+"  Specify a font with --font/--gothic-font or @font-face\n"
 "```"
 
 #: src/supports/fonts.md:25
